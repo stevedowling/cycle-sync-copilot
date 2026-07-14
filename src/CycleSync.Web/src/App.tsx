@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import aspireLogo from '/Aspire.png';
 import './App.css';
 
@@ -9,23 +9,37 @@ interface WeatherForecast {
   summary: string;
 }
 
+interface TokenResponse {
+  accessToken: string;
+  tokenType: string;
+  expiresIn: number;
+  expiresAtUtc: string;
+}
+
 function App() {
   const [weatherData, setWeatherData] = useState<WeatherForecast[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [useCelsius, setUseCelsius] = useState(false);
+  const [email, setEmail] = useState(import.meta.env.VITE_DEFAULT_USER_EMAIL ?? 'alex@contoso.com');
+  const [token, setToken] = useState<string | null>(null);
+  const [sessionExpiry, setSessionExpiry] = useState<string | null>(null);
 
-  const fetchWeatherForecast = async () => {
+  const fetchWeatherForecast = async (accessToken: string) => {
     setLoading(true);
     setError(null);
-    
+
     try {
-      const response = await fetch('/api/weatherforecast');
-      
+      const response = await fetch('/api/weatherforecast', {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      });
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      
+
       const data: WeatherForecast[] = await response.json();
       setWeatherData(data);
     } catch (err) {
@@ -36,24 +50,75 @@ function App() {
     }
   };
 
-  useEffect(() => {
-    fetchWeatherForecast();
-  }, []);
+  const startSession = async (sessionEmail: string) => {
+    setError(null);
+    const response = await fetch('/api/auth/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        email: sessionEmail
+      })
+    });
+
+    if (!response.ok) {
+      let detail = '';
+      try {
+        const contentType = response.headers.get('content-type') ?? '';
+        if (contentType.includes('application/json')) {
+          const body = await response.json() as { error?: string };
+          detail = body.error?.trim() ?? '';
+        } else {
+          detail = (await response.text()).trim();
+        }
+      } catch {
+        detail = '';
+      }
+
+      const suffix = detail.length > 0 ? ` ${detail}` : '';
+      throw new Error(`Sign-in failed (${response.status}).${suffix}`);
+    }
+
+    const data: TokenResponse = await response.json();
+    setToken(data.accessToken);
+    setSessionExpiry(data.expiresAtUtc);
+    await fetchWeatherForecast(data.accessToken);
+  };
+
+  const handleSignIn = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    try {
+      await startSession(email.trim());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to sign in');
+    }
+  };
+
+  const handleRefresh = async () => {
+    if (!token) {
+      setError('Sign in before refreshing weather data.');
+      return;
+    }
+
+    await fetchWeatherForecast(token);
+  };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString(undefined, { 
-      weekday: 'short', 
-      month: 'short', 
-      day: 'numeric' 
+    return new Date(dateString).toLocaleDateString(undefined, {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric'
     });
   };
 
   return (
     <div className="app-container">
+      <a className="skip-link" href="#main-content">Skip to main content</a>
       <header className="app-header">
-        <a 
-          href="https://aspire.dev" 
-          target="_blank" 
+        <a
+          href="https://aspire.dev"
+          target="_blank"
           rel="noopener noreferrer"
           aria-label="Visit Aspire website (opens in new tab)"
           className="logo-link"
@@ -62,9 +127,27 @@ function App() {
         </a>
         <h1 className="app-title">Aspire Starter</h1>
         <p className="app-subtitle">Modern distributed application development</p>
+        <form className="session-form" onSubmit={handleSignIn}>
+          <label htmlFor="session-email-input" className="session-label">Company email</label>
+          <input
+            id="session-email-input"
+            className="session-input"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            required
+          />
+          <button className="session-button" type="submit">Sign in</button>
+          <p className="session-status" aria-live="polite">
+            {token
+              ? `Signed in as ${email}${sessionExpiry ? ` (expires ${new Date(sessionExpiry).toLocaleTimeString()})` : ''}`
+              : 'Not signed in'}
+          </p>
+        </form>
       </header>
 
-      <main className="main-content">
+      <main id="main-content" className="main-content">
         <section className="weather-section" aria-labelledby="weather-heading">
           <div className="card">
             <div className="section-header">
@@ -72,7 +155,7 @@ function App() {
               <div className="header-actions">
                 <fieldset className="toggle-switch" aria-label="Temperature unit selection">
                   <legend className="visually-hidden">Temperature unit</legend>
-                  <button 
+                  <button
                     className={`toggle-option ${!useCelsius ? 'active' : ''}`}
                     onClick={() => setUseCelsius(false)}
                     aria-pressed={!useCelsius}
@@ -81,7 +164,7 @@ function App() {
                     <span aria-hidden="true">°F</span>
                     <span className="visually-hidden">Fahrenheit</span>
                   </button>
-                  <button 
+                  <button
                     className={`toggle-option ${useCelsius ? 'active' : ''}`}
                     onClick={() => setUseCelsius(true)}
                     aria-pressed={useCelsius}
@@ -91,42 +174,42 @@ function App() {
                     <span className="visually-hidden">Celsius</span>
                   </button>
                 </fieldset>
-                <button 
+                <button
                   className="refresh-button"
-                  onClick={fetchWeatherForecast} 
-                  disabled={loading}
+                  onClick={() => void handleRefresh()}
+                  disabled={loading || !token}
                   aria-label={loading ? 'Loading weather forecast' : 'Refresh weather forecast'}
                   type="button"
                 >
-                  <svg 
+                  <svg
                     className={`refresh-icon ${loading ? 'spinning' : ''}`}
-                    width="20" 
-                    height="20" 
-                    viewBox="0 0 24 24" 
-                    fill="none" 
-                    stroke="currentColor" 
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
                     strokeWidth="2"
                     aria-hidden="true"
                     focusable="false"
                   >
-                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
                   </svg>
                   <span>{loading ? 'Loading...' : 'Refresh'}</span>
                 </button>
               </div>
             </div>
-            
+
             {error && (
               <div className="error-message" role="alert" aria-live="polite">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                  <circle cx="12" cy="12" r="10"/>
-                  <line x1="12" y1="8" x2="12" y2="12"/>
-                  <line x1="12" y1="16" x2="12.01" y2="16"/>
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
                 </svg>
                 <span>{error}</span>
               </div>
             )}
-            
+
             {loading && weatherData.length === 0 && (
               <div className="loading-skeleton" role="status" aria-live="polite" aria-label="Loading weather data">
                 {[...Array(5)].map((_, i) => (
@@ -135,7 +218,7 @@ function App() {
                 <span className="visually-hidden">Loading weather forecast data...</span>
               </div>
             )}
-            
+
             {weatherData.length > 0 && (
               <div className="weather-grid">
                 {weatherData.map((forecast, index) => (
@@ -165,9 +248,9 @@ function App() {
           <a href="https://aspire.dev" target="_blank" rel="noopener noreferrer">
             Learn more about Aspire<span className="visually-hidden"> (opens in new tab)</span>
           </a>
-          <a 
-            href="https://github.com/microsoft/aspire" 
-            target="_blank" 
+          <a
+            href="https://github.com/microsoft/aspire"
+            target="_blank"
             rel="noopener noreferrer"
             className="github-link"
             aria-label="View Aspire on GitHub (opens in new tab)"
