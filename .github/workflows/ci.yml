@@ -24,7 +24,7 @@ jobs:
       - name: Build AppHost
         run: dotnet build CycleSync.AppHost/CycleSync.AppHost.csproj --configuration Release --no-restore
       - name: Specs
-        run: dotnet test ../tests/CycleSync.Specs/CycleSync.Specs.csproj --configuration Release --no-build
+        run: dotnet test ../tests/CycleSync.Specs/CycleSync.Specs.csproj --configuration Release
 
   web:
     runs-on: ubuntu-latest
