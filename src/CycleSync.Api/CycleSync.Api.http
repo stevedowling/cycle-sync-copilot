@@ -1,0 +1,6 @@
+@CycleSync.Api_HostAddress = http://localhost:5012
+
+GET {{CycleSync.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
