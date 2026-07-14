@@ -63,7 +63,21 @@ function App() {
     });
 
     if (!response.ok) {
-      throw new Error('Sign-in failed. Use your allowed company domain email.');
+      let detail = '';
+      try {
+        const contentType = response.headers.get('content-type') ?? '';
+        if (contentType.includes('application/json')) {
+          const body = await response.json() as { error?: string };
+          detail = body.error?.trim() ?? '';
+        } else {
+          detail = (await response.text()).trim();
+        }
+      } catch {
+        detail = '';
+      }
+
+      const suffix = detail.length > 0 ? ` ${detail}` : '';
+      throw new Error(`Sign-in failed (${response.status}).${suffix}`);
     }
 
     const data: TokenResponse = await response.json();
